@@ -1,105 +1,178 @@
 import nltk
 
-##filenName = input("File?")
-fileName = "WSJ_POS_CORPUS_FOR_STUDENTS/WSJ_02-21.POS"
+def main():
+    emissions = {}
+    transitions = {}
 
-readFile = open(fileName)
-lines = readFile.readlines()
+    popData(emissions, transitions)
 
-POS_dict = {}
-State_dict = {}
+    calcProbs(emissions, transitions)
+
+    viterbi('test.words', emissions, transitions)
 
 
+def popData(emissions, transitions):
+    # this function populates the emissions/transitions data from the WSJ_02-21.pos file
+    wsj21File = open('WSJ_POS_CORPUS_FOR_STUDENTS/WSJ_02-21.POS')
 
-def dictionaryFiller(lines, POS_dict, State_dict):
+    lines = [l.rstrip('\n') for l in wsj21File]
+
+    prevPos = 'begin_sentence'
+
+    for i in range(len(lines)):
+        line = lines[i]
+
+        # prepare the words
+        line = line.strip()
+        words = line.split('\t')
+
+        pos = ''
+        word = ''
+
+        # this if statement makes sure the 'words' array is well formed
+        if len(words) != 2:
+            # simulate beginning and ending of sentences for the sentence boundaries
+            word = 'end_sentence'
+            pos = 'end_sentence'
+            recordTallies(emissions, transitions, pos, word, prevPos)
+            prevPos = 'end_sentence'
+            word = 'begin_sentence'
+            pos = 'begin_sentence'
+            recordTallies(emissions, transitions, pos, word, prevPos)
+        else:
+            # isolate the POS and the word
+            word = words[0].lower()
+            pos = words[1]
+            recordTallies(emissions, transitions, pos, word, prevPos)
+
+        prevPos = pos
+
+
+def recordTallies(emissions, transitions, pos, word, prevPos):
+    # calculate the emission probability first
+    if pos not in emissions:
+        emissions[pos] = {'RECORDED_TOTAL': 1}
+
+    if word not in emissions[pos]:
+        emissions[pos][word] = 1
+    else:
+        emissions[pos][word] += 1
+        emissions[pos]['RECORDED_TOTAL'] += 1
+
+    # next, calculate the transition probabilities
+    if prevPos not in transitions:
+        transitions[prevPos] = {'RECORDED_TOTAL': 1}
+
+    if pos not in transitions[prevPos]:
+        transitions[prevPos][pos] = 1
+    else:
+        transitions[prevPos][pos] += 1
+        transitions[prevPos]['RECORDED_TOTAL'] += 1
+
+
+def calcProbs(emissions, transitions):
+    for pos in emissions.keys():
+        for key in emissions[pos].keys():
+            if key == 'RECORDED_TOTAL':
+                continue
+            emissions[pos][key] = emissions[pos][key] / \
+                float(emissions[pos]['RECORDED_TOTAL'])
+
+    for pos in transitions.keys():
+        for key in transitions[pos].keys():
+            if key == 'RECORDED_TOTAL':
+                continue
+            transitions[pos][key] = transitions[pos][key] / \
+                float(transitions[pos]['RECORDED_TOTAL'])
+
+
+def viterbi(fileName, emissions, transitions):
+    file = open(fileName)
+
+    lines = [l.strip() for l in file]
+
+    POS = emissions.keys()
+    NUM_POS = len(POS)
+    BEGIN_INDEX = POS.index('begin_sentence')
+    END_INDEX = POS.index('end_sentence')
+
+    matrix = []
+    firstColumn = [(float(0), 0)] * NUM_POS
+    firstColumn[BEGIN_INDEX] = (float(1), 0)
+    matrix.append(firstColumn)
 
     for line in lines:
-        line = line.lower()
-        line = line.strip()
-        i = line.split("\t")
-        if len(i)!=2:
-            continue
 
-        word = i[0]
-        token = i[1]
-        if token in POS_dict:
-                if word in POS_dict[token]:
-                    freq = POS_dict[token][word]
-                    freq+=1
-                    POS_dict[token][word] = freq
-                    POS_dict[token]["total"] += 1
+        # this is the column that we will eventually push onto the matrix
+        thisCol = [(float(0), 0)] * NUM_POS
+        # this is the previous column in the matrix
+        prevCol = matrix[len(matrix)-1]
+
+        if len(line) == 0:
+            line = 'end_sentence'
+
+        for i in range(len(thisCol)):
+            line = line.lower()
+            # the current part of speech we want to test, for this line
+            currentPos = POS[i]
+            maxVal = float(0)
+            maxIndex = 0
+
+            for j in range(len(prevCol)):
+                # the previous part of speech that we want to see if it transitioned into this one
+                prevPos = POS[j]
+                prevProb = prevCol[j][0]  # previous probability
+
+                transProb = float(0)  # transition probability
+                if currentPos in transitions[prevPos].keys():
+                    transProb = transitions[prevPos][currentPos]
+
+                wordProb = float(0)  # emission probability
+                if line in emissions[currentPos].keys():
+                    wordProb = emissions[currentPos][line]
                 else:
-                    POS_dict[token][word]=1   
-                    POS_dict[token]["total"] += 1         
-        else: 
-            POS_dict[token]= {}
-            POS_dict[token][word] = 1
-            POS_dict[token]["total"] = 1
-    State_dict["End_Sent"]={}
-    State_dict["End_Sent"]["Begin_Sent"]= 0
+                    wordProb = 0.001
 
-    prev = "Begin_Sent"
-    for line in lines:
-        line = line.lower()
-        line = line.strip()
-        i = line.split("\t")
-        if len(i)!=2:
-            token = "End_Sent"
-        else:
-            token = i[1]
+                totalProb = wordProb * prevProb * transProb  # total probability
 
-        if prev in State_dict:
-            if token in State_dict[prev]:
-                freq = State_dict[prev][token]
-                freq+=1
-                State_dict[prev][token] = freq
-                State_dict[prev]["total"] += 1
-            else:
-                State_dict[prev][token]=1
-                State_dict[prev]["total"] += 1
-                
-        else:
-            State_dict[prev]={}
-            State_dict[prev][token] = 1
-            State_dict[prev]["total"] = 1
-        prev = token
-        ## automatically connects end_sent to begin_sent
-        if (prev=="End_Sent"):
-            freq = State_dict[prev]["Begin_Sent"]
-            freq += 1
-            State_dict[prev]["Begin_Sent"] = freq
-            if "total" in State_dict[prev]:
-                State_dict[prev]["total"] += 1
-            else:
-                State_dict[prev]["total"] = 1
-            prev="Begin_Sent"
-    
+                if totalProb > maxVal:  # see if it's the maximum probability
+                    maxVal = totalProb
+                    maxIndex = j
 
-# transforms frequencies into probabilities
-def probFinder(POS_dict,State_dict):
-    for pos in POS_dict.keys():
-        for key in POS_dict[pos].keys():
-            if key!="total":
-                freq = POS_dict[pos][key]
-                POS_dict[pos][key] = (freq/ POS_dict[pos]["total"])
-    for state in State_dict.keys():
-        for key in State_dict[state].keys():
-            if key!="total":
-                freq = State_dict[state][key]
-                State_dict[state][key] = (freq/ State_dict[state]["total"])
+            # write the max probability to this matrix cell
+            thisCol[i] = (maxVal, maxIndex)
 
-#Viterbi: prev likelihood*
-# prob that prev is a state* prob that prev state transitions to current state * prob that given current state, word is current word
+        matrix.append(thisCol)  # finally, append the column to the matrix
 
-def Viterbi(lines, emiss, trans):
-    
-    lines = lines.strip()
+        # we also need to check if this is the end/beginning of sentence
+        if line == 'end_sentence':
+            nextCol = [(float(0), 0)] * NUM_POS
+            nextCol[BEGIN_INDEX] = (float(1), END_INDEX)
+            matrix.append(nextCol)
 
-    speech = emiss.key()
+    # now, we have our matrix filled with viterbi results
+    # now we start and the end and work our way backwards
+    # find the most probable last element
+    lastCol = matrix[len(matrix)-1]
+    maxVal = (0, 0)
+    maxIndex = 0
+    for i in range(len(lastCol)):
+        if lastCol[i][0] > maxVal[0]:
+            maxVal = lastCol[i]
+            maxIndex = i
+
+    i = len(matrix)
+    next = maxIndex
+    res = []
+    while i > 0:
+        i -= 1
+        res.append(POS[next])
+        next = matrix[i][next][1]
+
+    res.reverse()
+
+    print(res)
 
 
-dictionaryFiller(lines, POS_dict, State_dict)
 
-probFinder(POS_dict,State_dict)
-
-print((POS_dict["dt"]["the"]))
+main()
